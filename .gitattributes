@@ -1,2 +1,16 @@
 /mvnw text eol=lf
 *.cmd text eol=crlf
+*.sh text eol=lf
+* text=auto eol=lf
+
+# Scripts batch Windows
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Fichiers binaires
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary

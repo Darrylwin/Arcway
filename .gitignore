@@ -1,8 +1,24 @@
 HELP.md
+
+### Maven ###
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+
+### Secrets et clés ###
+# Variables d'environnement
+.env
+.env.*
+!.env.example
+*.env
+
+### Clés et certificats
+*.pem
+*.key
+$.p12
+*.jks
+secrets/
 
 ### STS ###
 .apt_generated
@@ -31,3 +47,18 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Système d'exploitation ###
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+### Logs et dumps ###
+*.log
+# Dump mémoire Java
+*.hprof
+hs_err_pid*
+
+# Sauvegardes de base locales
+*.dumb
+*.sql.gz
