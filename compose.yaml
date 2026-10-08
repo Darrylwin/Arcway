@@ -1,0 +1,41 @@
+name: arcway
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: arcway-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:?définir DB_NAME dans .env}
+      POSTGRES_USER: ${DB_ADMIN_USER:?définir DB_ADMIN_USER dans .env}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?définir DB_ADMIN_PASSWORD dans .env}
+      # Transmises au script d'initialisation qui crée les rôles applicatifs.
+      DB_MIGRATOR_USER: ${DB_MIGRATOR_USER:?définir DB_MIGRATOR_USER dans .env}
+      DB_MIGRATOR_PASSWORD: ${DB_MIGRATOR_PASSWORD:?définir DB_MIGRATOR_PASSWORD dans .env}
+      DB_APP_USER: ${DB_APP_USER:?définir DB_APP_USER dans .env}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?définir DB_APP_PASSWORD dans .env}
+    ports:
+      # Lié à la boucle locale : la base n'est pas joignable depuis le réseau.
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Exécuté uniquement à la première initialisation du volume.
+      - ./ops/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER} -d ${DB_NAME}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # Capture les emails envoyés par l'application
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: arcway-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAIL_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAIL_UI_PORT:-8025}:8025"
+
+volumes:
+  postgres-data:
