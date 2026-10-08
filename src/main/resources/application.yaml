@@ -1,3 +1,4 @@
 spring:
   application:
-    name: arcway
+    name: Arcway
+    version: 1.0.0
