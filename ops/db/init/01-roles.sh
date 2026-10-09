@@ -52,4 +52,10 @@ GRANT USAGE ON SCHEMA public TO :"app_user";
 -- Une requête applicative ne doit pas pouvoir monopoliser la base.
 ALTER ROLE :"app_user" SET statement_timeout = '5s';
 
+-- Une requête ne doit pas attendre indéfiniment un verrou de ligne.
+ALTER ROLE :"app_user" SET lock_timeout = '3s';
+
+-- Une transaction restée ouverte sans activité libère sa connexion et ses verrous.
+ALTER ROLE :"app_user" SET idle_in_transaction_session_timeout = '15s';
+
 EOSQL
