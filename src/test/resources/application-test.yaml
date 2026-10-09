@@ -1,0 +1,6 @@
+# Profil des tests d'intégration. Flyway applique les vraies migrations sur le
+# conteneur PostgreSQL
+
+spring:
+  flyway:
+    enabled: true
