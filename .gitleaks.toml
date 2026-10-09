@@ -1,0 +1,20 @@
+# Configuration de Gitleaks : détection de secrets dans le code et l'historique Git.
+
+title = "Arcway : règles de détection de secrets"
+
+[extend]
+# Reprend les règles intégrées. On n'écrit que ce qui est propre à ce projet.
+useDefault = true
+
+[allowlist]
+description = "Faux positifs connus et justifiés"
+
+# Valeurs factices volontaires des fichiers modèles (.env.example).
+stopwords = [
+    "change-me",
+]
+
+# Fichiers dont le contenu n'est pas du code projet.
+paths = [
+    '''(^|/)\.mvn/wrapper/''',
+]
