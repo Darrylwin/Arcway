@@ -1,0 +1,15 @@
+# Profil de développement : la base du compose.yaml, Flyway au démarrage.
+# Les identifiants viennent de l'environnement (voir .env.example).
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:${DB_HOST_PORT:5432}/${DB_NAME}
+    # L'application tourne avec le rôle bridé, même en local.
+    username: ${DB_APP_USER}
+    password: ${DB_APP_PASSWORD}
+  flyway:
+    enabled: true
+    # Flyway ouvre sa propre connexion avec le rôle propriétaire (DDL).
+    url: jdbc:postgresql://localhost:${DB_HOST_PORT:5432}/${DB_NAME}
+    user: ${DB_MIGRATOR_USER}
+    password: ${DB_MIGRATOR_PASSWORD}

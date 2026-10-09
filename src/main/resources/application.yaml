@@ -5,15 +5,43 @@ spring:
   application:
     name: arcway
     version: "@project.version@"
+
   lifecycle:
     timeout-per-shutdown-phase: 30s
+
+  datasource:
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 2000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    # Désactivé par défaut : en production, Flyway tourne dans une étape séparée.
+    # Seul le profil local l'active au démarrage.
+    enabled: false
   web:
     error:
       # Aucun détail interne dans les réponses d'erreur par défaut.
-      include-message: never
       include-stacktrace: never
+      include-message: never
       include-binding-errors: never
       include-exception: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
 
 server:
   shutdown: graceful
