@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build et tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Rendre mvnw exécutable
+        run: chmod +x mvnw
+
+      - name: Build et tests
+        run: ./mvnw -B verify
+
+  secrets:
+    name: Détection de secrets (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scanner l'historique Git
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            ghcr.io/gitleaks/gitleaks:latest \
+            git /repo --config /repo/.gitleaks.toml -v
+
+  vulnerabilities:
+    name: Vulnérabilités des dépendances (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Échoue sur HIGH et CRITICAL. --ignore-unfixed ignore ce qui n'a aucun
+      # correctif : on ne peut rien y faire. Les exceptions acceptées sont
+      # dans .trivyignore, lu automatiquement depuis le dossier de travail.
+      - name: Scanner pom.xml
+        run: |
+          docker run --rm -v "$PWD:/project" -w /project \
+            aquasec/trivy:latest fs \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            .

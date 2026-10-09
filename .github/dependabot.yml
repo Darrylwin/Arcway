@@ -1,0 +1,70 @@
+# Mises à jour automatiques des dépendances.
+
+version: 2
+
+updates:
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Africa/Lome
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope        # produit "chore(deps) : ..." (Conventional Commits)
+    groups:
+      # Les mises à jour mineures et correctives sont regroupées en une seule PR.
+      maven-minor-patch:
+        update-types: [ minor, patch ]
+    ignore:
+      # Une nouvelle version majeure de Spring Boot est une migration à
+      # planifier, pas une PR automatique.
+      - dependency-name: org.springframework.boot:*
+        update-types: [ version-update:semver-major ]
+
+  # Images du Dockerfile (eclipse-temurin).
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Africa/Lome
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      # Le projet est volontairement sur Java 17 : on reçoit les correctifs
+      # de 17, pas la proposition de passer à 21 ou 25.
+      - dependency-name: eclipse-temurin
+        update-types: [ version-update:semver-major ]
+
+  # Images de compose.yaml (postgres, mailpit).
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Africa/Lome
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      # Changer de version majeure de PostgreSQL est une opération de données
+      # (migration du volume), jamais une mise à jour automatique.
+      - dependency-name: postgres
+        update-types: [ version-update:semver-major ]
+
+  # Actions GitHub utilisées par les workflows (.github/workflows/).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Africa/Lome
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      github-actions:
+        patterns: [ "*" ]
