@@ -1,4 +1,19 @@
+# Configuration commune à tous les environnements. Aucun secret ici.
+# Les valeurs propres à un environnement vivent dans application-<profil>.yaml.
+
 spring:
   application:
-    name: Arcway
-    version: 0.0.1
+    name: arcway
+    version: "@project.version@"
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  web:
+    error:
+      # Aucun détail interne dans les réponses d'erreur par défaut.
+      include-message: never
+      include-stacktrace: never
+      include-binding-errors: never
+      include-exception: false
+
+server:
+  shutdown: graceful
