@@ -67,7 +67,7 @@
                             <rules>
                                 <requireJavaVersion>
                                     <version>[17,18)</version>
-                                    <message>Arcway exige Java 17 (voir .sdkmanrc). JDK détecté : ${java.version}.</message>
+                                    <message>Arcway exige Java 17 (voir .sdkmanrc).</message>
                                 </requireJavaVersion>
                             </rules>
                         </configuration>
