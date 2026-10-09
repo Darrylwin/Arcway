@@ -1,7 +1,12 @@
 # Profil de développement : la base du compose.yaml, Flyway au démarrage.
-# Les identifiants viennent de l'environnement (voir .env.example).
+# Les identifiants viennent du fichier .env à la racine du projet (voir .env.example).
 
 spring:
+  config:
+    # Charge .env (format CLE=valeur) comme source de propriétés.
+    # « optional » : pas d'échec s'il est absent ; les variables peuvent alors
+    # venir de l'environnement du shell ou de l'IDE.
+    import: optional:file:.env[.properties]
   datasource:
     url: jdbc:postgresql://localhost:${DB_HOST_PORT:5432}/${DB_NAME}
     # L'application tourne avec le rôle bridé, même en local.

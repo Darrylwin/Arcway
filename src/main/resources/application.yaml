@@ -42,6 +42,13 @@ management:
     health:
       probes:
         enabled: true
+      group:
+        # Readiness : l'instance sort du load balancer si la base est injoignable.
+        # Liveness reste sans la base, pour qu'une panne de base ne provoque pas de redémarrages en boucle.
+        readiness:
+          include:
+            - readinessState
+            - db
 
 server:
   shutdown: graceful
