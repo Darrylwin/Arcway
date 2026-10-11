@@ -1,29 +1,82 @@
+# =============================================================================
+# Arcway : infrastructure de DÉVELOPPEMENT LOCAL
+# -----------------------------------------------------------------------------
+# Services : postgres (base) et mailpit (boîte mail de test).
+# L'application tourne HORS conteneur (./mvnw spring-boot:run, profil « local »).
+#
+# NE JAMAIS déployer ce fichier tel quel : la production utilise
+# deploy/compose.prod.yaml.
+#
+# Les variables sont lues depuis .env (copie de .env.example). Une variable
+# requise absente fait échouer `docker compose up` avec un message explicite.
+# =============================================================================
 name: arcway
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    container_name: arcway-postgres
-    environment:
-      POSTGRES_DB: arcway_db
-      POSTGRES_PASSWORD: postgres_dev_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./ops/db/init/01-roles.sql:/docker-entrypoint-initdb.d/01-roles.sql
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres -d arcway_db" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 17 : la RLS s'applique dès le développement (l'application se
+  # connecte avec arcway_app, jamais avec le compte d'administration).
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17
+    container_name: arcway-postgres
+    restart: unless-stopped
+    environment:
+      # Compte d'amorçage du conteneur (administration locale uniquement)
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER est requis (voir .env.example)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD est requis}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB est requis}
+      # Lus par 01-roles.sql (\getenv) pour créer arcway_migrator et arcway_app
+      ARCWAY_DB_MIGRATOR_PASSWORD: ${ARCWAY_DB_MIGRATOR_PASSWORD:?ARCWAY_DB_MIGRATOR_PASSWORD est requis}
+      ARCWAY_DB_APP_PASSWORD: ${ARCWAY_DB_APP_PASSWORD:?ARCWAY_DB_APP_PASSWORD est requis}
+      TZ: UTC
+    command:
+      - postgres
+      - -c
+      - timezone=UTC
+      - -c
+      - log_timezone=UTC
+      # Trace des requêtes lentes
+      - -c
+      - log_min_duration_statement=500
+    ports:
+      # Exposé sur la boucle locale uniquement : jamais sur le réseau
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - arcway-pgdata:/var/lib/postgresql/data
+      # Les scripts ne s'exécutent qu'à la PREMIÈRE initialisation du volume.
+      # Pour rejouer : scripts/dev-reset-db.sh
+      - ./ops/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  # Mailpit : capture les emails (invitation, vérification, réinitialisation).
+  # Interface web : http://localhost:8025 - SMTP : localhost:1025.
+  # Développement uniquement : aucun email ne quitte la machine.
+  # ---------------------------------------------------------------------------
   mailpit:
     image: axllent/mailpit:latest
     container_name: arcway-mailpit
+    restart: unless-stopped
     ports:
-      - "8025:8025" # Interface Web
-      - "1025:1025" # Serveur SMTP
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: [ "CMD", "/mailpit", "readyz" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
-  postgres_data:
+  arcway-pgdata:
+    name: arcway-pgdata

@@ -1,0 +1,288 @@
+# =============================================================================
+# Arcway : publication et déploiement en production
+# -----------------------------------------------------------------------------
+# Déclenchement : poussée d'un tag de version vX.Y.Z.
+#
+# Enchaînement
+#   verify   ─► tests complets, cohérence tag / version du pom
+#   image    ─► construction, scan Trivy, publication GHCR
+#   deploy   ─► APPROBATION MANUELLE, migration, démarrage, smoke test,
+#     retour arrière automatique si échec
+#   github-release ─► notes de version
+#
+# Configuration GitHub requise
+#   Environment « production » avec « Required reviewers ».
+#   Secrets de l'environnement : DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY,
+#     DEPLOY_KNOWN_HOSTS.
+#   Variables de l'environnement : DEPLOY_PORT (22), DEPLOY_PATH
+#
+# Garde-fous
+#   - Le déploiement utilise le CONDENSAT de l'image : ce qui a été scanné est
+#     exactement ce qui est déployé.
+#   - Les fichiers env/, secrets/ et certs/ du serveur ne sont jamais écrasés.
+#   - Un seul déploiement à la fois, jamais annulé en cours de route.
+# =============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "17"
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # 1. Vérification : le tag doit correspondre à la version du pom, et toute la
+  #    suite de tests doit passer.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Check tag matches pom version
+        run: |
+          pom_version="$(./mvnw -B -ntp -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          tag_version="${GITHUB_REF_NAME#v}"
+          echo "pom=$pom_version tag=$tag_version"
+          if [ "$pom_version" != "$tag_version" ]; then
+            echo "::error::Le tag ($tag_version) ne correspond pas à la version du pom ($pom_version)"
+            exit 1
+          fi
+
+      - name: Build and run all tests
+        run: ./mvnw -B -ntp verify
+
+  # ---------------------------------------------------------------------------
+  # 2. Image : construction locale, scan, puis publication.
+  #    La publication n'a lieu que si le scan réussit.
+  # ---------------------------------------------------------------------------
+  image:
+    name: Build and publish image
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-ref: ${{ steps.ref.outputs.image-ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # GHCR exige un nom en minuscules.
+      - name: Compute image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (tags and OCI labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build image (local, for scanning)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: arcway:scan
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Les exceptions documentées sont dans .trivyignore.
+      - name: Scan image (Trivy)
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD":/work -w /work \
+            aquasec/trivy:latest image \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --ignorefile .trivyignore \
+              --exit-code 1 \
+              arcway:scan
+
+      - name: Publish image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            VCS_REF=${{ github.sha }}
+          # Traçabilité de la chaîne de construction
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+
+      # Référence immuable transmise au déploiement.
+      - name: Compute immutable image reference
+        id: ref
+        run: echo "image-ref=${{ steps.name.outputs.image }}@${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # 3. Déploiement. L'environnement « production » impose l'approbation manuelle.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to production
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      IMAGE_REF: ${{ needs.image.outputs.image-ref }}
+      TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+      SSH_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/arcway' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH (host key pinned)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # Seuls compose, Caddyfile et le smoke test sont envoyés : env/, secrets/
+      # et certs/ restent propres au serveur.
+      - name: Upload deployment files
+        run: |
+          opts=(-i ~/.ssh/id_deploy -P "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          scp "${opts[@]}" deploy/compose.prod.yaml deploy/Caddyfile "$TARGET:$DEPLOY_PATH/deploy/"
+          scp "${opts[@]}" scripts/smoke-test.sh "$TARGET:$DEPLOY_PATH/scripts/"
+
+      - name: Migrate and start
+        id: deploy
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -o ServerAliveInterval=15 "$TARGET" bash -s -- "$IMAGE_REF" "$DEPLOY_PATH" <<'REMOTE'
+          set -Eeuo pipefail
+          image="$1"; cd "$2"
+          compose=(docker compose --env-file deploy/env/prod.env -f deploy/compose.prod.yaml)
+
+          # Mémorise la version en service pour un éventuel retour arrière.
+          if [[ -f .current-image ]]; then cp .current-image .previous-image; fi
+
+          export ARCWAY_IMAGE="$image"
+          "${compose[@]}" config --quiet
+          "${compose[@]}" pull
+
+          # Étape 1 : migrations. Un échec s'arrête ici : l'API en service n'est pas touchée.
+          timeout 300 "${compose[@]}" run --rm --no-deps migrate
+
+          # Étape 2 : nouvelle version de l'API et du proxy.
+          "${compose[@]}" up -d --no-deps --wait --wait-timeout 240 --remove-orphans app caddy
+
+          printf '%s\n' "$image" > .current-image
+          REMOTE
+
+      - name: Smoke test
+        id: smoke
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$TARGET" bash -s -- "$DEPLOY_PATH" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$1"
+          env_get() { grep -E "^$1=" deploy/env/prod.env | head -n1 | cut -d= -f2-; }
+          domain="$(env_get ARCWAY_DOMAIN)"
+          mgmt_port="$(env_get ARCWAY_MANAGEMENT_PORT)"
+          # Actuator n'est joignable que sur la boucle locale du serveur.
+          bash scripts/smoke-test.sh \
+            --base-url "https://${domain}" \
+            --management-url "http://127.0.0.1:${mgmt_port}" \
+            --timeout 120
+          REMOTE
+
+      # Retour arrière automatique : redéploie l'image précédente SANS toucher à la base.
+      - name: Roll back to previous image
+        if: ${{ always() && (steps.deploy.outcome == 'failure' || steps.smoke.outcome == 'failure') }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$TARGET" bash -s -- "$DEPLOY_PATH" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$1"
+          if [[ ! -f .previous-image ]]; then
+            echo "Aucune version précédente connue : retour arrière impossible."
+            exit 0
+          fi
+          export ARCWAY_IMAGE="$(< .previous-image)"
+          echo "Retour arrière vers : $ARCWAY_IMAGE"
+          docker compose --env-file deploy/env/prod.env -f deploy/compose.prod.yaml \
+            up -d --no-deps --wait --wait-timeout 240 app
+          printf '%s\n' "$ARCWAY_IMAGE" > .current-image
+          REMOTE
+
+  # ---------------------------------------------------------------------------
+  # 4. Notes de version.
+  # ---------------------------------------------------------------------------
+  github-release:
+    name: GitHub release
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag

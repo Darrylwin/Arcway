@@ -1,0 +1,175 @@
+# =============================================================================
+# Arcway : déploiement de PRODUCTION
+# -----------------------------------------------------------------------------
+# Services
+#   migrate : étape ONE-SHOT. Applique les migrations Flyway avec arcway_migrator,
+#             puis s'arrête. Même image que l'application.
+#   app     : l'API. Aucun accès DDL : rôle arcway_app uniquement.
+#   caddy   : reverse proxy, TLS automatique, en-têtes de sécurité.
+#
+# La base PostgreSQL est EXTERNE à ce fichier :
+# TLS obligatoire, accès réseau restreint à ce serveur.
+#
+# Utilisation
+#   export ARCWAY_IMAGE=ghcr.io/<org>/arcway@sha256:<condensat>
+#   docker compose --env-file env/prod.env -f compose.prod.yaml run --rm --no-deps migrate
+#   docker compose --env-file env/prod.env -f compose.prod.yaml up -d --no-deps --wait app caddy
+# Le pipeline release.yml exécute exactement ces commandes.
+#
+# Fichiers attendus à côté de ce fichier sur le serveur :
+#   env/prod.env     variables NON secrètes
+#   secrets/<NOM>    un fichier par secret, propriétaire UID 10001, mode 0400
+#   certs/db-ca.pem  autorité de certification du serveur PostgreSQL
+#
+# Durcissement des conteneurs : système de fichiers racine en lecture seule,
+# capacités Linux supprimées, pas d'élévation de privilèges, init,
+# journaux à rotation, limites de ressources.
+# =============================================================================
+name: arcway-prod
+
+# Rotation des journaux : évite de remplir le disque du serveur.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# Socle commun à migrate et app : même image, mêmes secrets, même durcissement.
+x-arcway-runtime: &arcway-runtime
+  # Référence IMMUABLE recommandée : un tag peut être déplacé.
+  image: ${ARCWAY_IMAGE:?ARCWAY_IMAGE est requis (ex. ghcr.io/<org>/arcway@sha256:...)}
+  env_file:
+    - ./env/prod.env
+  # Chaque secret apparaît dans /run/secrets/<NOM> ; Spring le lit par
+  # « configtree » et les placeholders ${ARCWAY_JWT_SECRET}, etc.
+  # se résolvent tels quels.
+  secrets:
+    - ARCWAY_DB_APP_PASSWORD
+    - ARCWAY_DB_MIGRATOR_PASSWORD
+    - ARCWAY_JWT_SECRET
+    - ARCWAY_MAIL_USER
+    - ARCWAY_MAIL_PASSWORD
+  volumes:
+    # TLS vers la base : sslrootcert=/etc/arcway/db-ca.pem dans ARCWAY_DB_URL
+    - ./certs/db-ca.pem:/etc/arcway/db-ca.pem:ro
+  read_only: true
+  tmpfs:
+    - /tmp
+  init: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging: *default-logging
+  networks:
+    - arcway
+  stop_grace_period: 30s   # > spring.lifecycle.timeout-per-shutdown-phase (20 s)
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Migration : s'exécute, applique Flyway, s'arrête.
+  # Lancé explicitement par `run --rm` avant le démarrage de la nouvelle version.
+  # Le démarrage valide aussi le schéma migré contre les entités
+  # et l'isolation : un échec bloque le déploiement AVANT tout changement de
+  # version de l'API.
+  # ---------------------------------------------------------------------------
+  migrate:
+    <<: *arcway-runtime
+    environment:
+      SPRING_PROFILES_ACTIVE: prod,migrate
+    restart: "no"
+    healthcheck:
+      disable: true
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+
+  # ---------------------------------------------------------------------------
+  # API. Le port de management est publié sur la boucle locale de l'hôte
+  # UNIQUEMENT : sondes et smoke test depuis le serveur, jamais depuis Internet.
+  # Le HEALTHCHECK vient du Dockerfile.
+  # ---------------------------------------------------------------------------
+  app:
+    <<: *arcway-runtime
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+    restart: unless-stopped
+    # Protection en cas de `docker compose up` sans --no-deps : pas d'API sur un
+    # schéma non migré. Le pipeline utilise --no-deps.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "8080"
+    ports:
+      - "127.0.0.1:${ARCWAY_MANAGEMENT_PORT:?ARCWAY_MANAGEMENT_PORT est requis}:${ARCWAY_MANAGEMENT_PORT}"
+    deploy:
+      resources:
+        limits:
+          cpus: "${ARCWAY_APP_CPUS:-1.0}"
+          memory: ${ARCWAY_APP_MEMORY:-1g}
+
+  # ---------------------------------------------------------------------------
+  # Caddy : seul service exposé à Internet. Adresse IP FIXE : c'est le proxy de
+  # confiance déclaré dans ARCWAY_TRUSTED_PROXIES.
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      ARCWAY_DOMAIN: ${ARCWAY_DOMAIN:?ARCWAY_DOMAIN est requis}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL est requis}
+    ports:
+      - "80:80"           # redirection HTTP -> HTTPS et défi ACME
+      - "443:443"
+      - "443:443/udp"     # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data        # certificats : À CONSERVER
+      - caddy-config:/config
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks:
+      arcway:
+        ipv4_address: 172.28.0.2
+
+networks:
+  arcway:
+    name: arcway-prod
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+          # Adresses dynamiques réservées à la moitié haute : 172.28.0.2 reste
+          # disponible pour Caddy quel que soit l'ordre de démarrage.
+          ip_range: 172.28.0.128/25
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+# Un fichier par secret : deploy/secrets/<NOM>, propriétaire 10001:10001, mode 0400,
+# sans retour à la ligne final.
+secrets:
+  ARCWAY_DB_APP_PASSWORD:
+    file: ./secrets/ARCWAY_DB_APP_PASSWORD
+  ARCWAY_DB_MIGRATOR_PASSWORD:
+    file: ./secrets/ARCWAY_DB_MIGRATOR_PASSWORD
+  ARCWAY_JWT_SECRET:
+    file: ./secrets/ARCWAY_JWT_SECRET
+  ARCWAY_MAIL_USER:
+    file: ./secrets/ARCWAY_MAIL_USER
+  ARCWAY_MAIL_PASSWORD:
+    file: ./secrets/ARCWAY_MAIL_PASSWORD

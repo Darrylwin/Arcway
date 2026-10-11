@@ -1,48 +1,186 @@
+# =============================================================================
+# Arcway : intégration continue
+# -----------------------------------------------------------------------------
+# Déclenchement : pull request vers main, push sur main, lancement manuel.
+#
+# Enchaînement
+#   secrets-scan ──► build (mvn verify : tests unitaires puis d'intégration)
+#                         └─► docker (lint du Dockerfile, build, scan Trivy)
+#   dependency-review (pull request seulement, en parallèle)
+#   ci-status : jalon unique à exiger dans la protection de branche.
+#
+# Principes
+#   - Moindre privilège : permissions en lecture seule par défaut, élargies au
+#     niveau du job seulement quand c'est nécessaire.
+#   - Aucun secret requis : la CI ne déploie rien.
+#   - Les tests d'intégration utilisent PostgreSQL réel via Testcontainers : le
+#     démon Docker des runners GitHub suffit.
+#   - Une nouvelle poussée annule la CI en cours sur la même branche, sauf main.
+# =============================================================================
 name: CI
 
 on:
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "17"
 
 jobs:
-  build-and-test:
+
+  # ---------------------------------------------------------------------------
+  # 1. Détection de secrets
+  # ---------------------------------------------------------------------------
+  secrets-scan:
+    name: Secrets scan
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        environment:
-          POSTGRES_DB: arcway_db
-          POSTGRES_PASSWORD: postgres_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - name: Checkout repository
+      - name: Checkout (full history)
         uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
+          fetch-depth: 0
 
-      - name: Run Gitleaks Security Scan
+      - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
 
-      - name: Build and Verify (Unit & Integration Tests)
-        run: ./mvnw verify
-        env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/arcway_db
-          SPRING_DATASOURCE_USERNAME: postgres
-          SPRING_DATASOURCE_PASSWORD: postgres_password
+  # ---------------------------------------------------------------------------
+  # 2. Compilation et tests : `mvn verify` exécute Surefire puis Failsafe
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build and test
+    needs: secrets-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Build and run all tests
+        run: ./mvnw -B -ntp verify
+
+      # Les rapports ne sont conservés qu'en cas d'échec, pour diagnostic.
+      - name: Upload test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 3. Image Docker : lint du Dockerfile, construction, scan de vulnérabilités.
+  #    L'image n'est PAS publiée ici.
+  #    Les exceptions de scan documentées sont dans .trivyignore.
+  # ---------------------------------------------------------------------------
+  docker:
+    name: Docker image
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOCKER_BUILDKIT: "1"
+      IMAGE_TAG: arcway:ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile (hadolint)
+        run: docker run --rm -i hadolint/hadolint hadolint --failure-threshold warning - < Dockerfile
+
+      - name: Build image
+        run: docker build --tag "$IMAGE_TAG" --build-arg VCS_REF="$GITHUB_SHA" .
+
+      - name: Scan image (Trivy)
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD":/work -w /work \
+            aquasec/trivy:latest image \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --ignorefile .trivyignore \
+              --exit-code 1 \
+              "$IMAGE_TAG"
+
+  # ---------------------------------------------------------------------------
+  # 4. Revue des dépendances d'une pull request.
+  #    Nécessite l'activation du « dependency graph » sur le dépôt.
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  # ---------------------------------------------------------------------------
+  # 5. Jalon unique : c'est CE job qu'on exige dans la protection de branche.
+  #    Il échoue si un job requis a échoué ou a été annulé, mais tolère
+  #    dependency-review absent.
+  # ---------------------------------------------------------------------------
+  ci-status:
+    name: CI status
+    if: always()
+    needs: [ secrets-scan, build, docker, dependency-review ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required jobs
+        run: |
+          echo "secrets-scan=${{ needs.secrets-scan.result }}"
+          echo "build=${{ needs.build.result }}"
+          echo "docker=${{ needs.docker.result }}"
+          echo "dependency-review=${{ needs.dependency-review.result }}"
+          for result in \
+            "${{ needs.secrets-scan.result }}" \
+            "${{ needs.build.result }}" \
+            "${{ needs.docker.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "Un job requis n'a pas réussi."
+              exit 1
+            fi
+          done
+          if [ "${{ needs.dependency-review.result }}" != "success" ] && \
+             [ "${{ needs.dependency-review.result }}" != "skipped" ]; then
+            echo "La revue des dépendances a échoué."
+            exit 1
+          fi

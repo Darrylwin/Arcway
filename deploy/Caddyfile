@@ -1,0 +1,81 @@
+# =============================================================================
+# Arcway : reverse proxy de production
+# -----------------------------------------------------------------------------
+# Rôle : terminaison TLS, en-têtes de sécurité, limite de taille de corps,
+# délais, journal d'accès.
+# Ne contient AUCUNE logique d'application : la limitation de débit, les droits
+# et l'isolation entre organisations vivent dans l'API.
+#
+# Variables : ARCWAY_DOMAIN, ACME_EMAIL.
+# Actuator n'est jamais proxifié.
+# =============================================================================
+
+{
+	# Adresse de contact pour les notifications d'expiration ACME
+	email {$ACME_EMAIL}
+
+	servers {
+		# Délais défensifs contre les connexions lentes
+		timeouts {
+			read_header 10s
+			read_body   10s
+			write       30s
+			idle        2m
+		}
+	}
+}
+
+{$ARCWAY_DOMAIN} {
+
+	# Compression des réponses JSON
+	encode zstd gzip
+
+	# API JSON : un corps de 1 Mo est largement suffisant
+	request_body {
+		max_size 1MB
+	}
+
+	# --- En-têtes de sécurité -------------------------------------------------
+	header {
+		# HTTPS imposé pendant un an
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# API pure : aucune ressource n'est chargeable depuis une réponse
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		# Ne révèle ni le serveur ni la pile technique
+		-Server
+		-X-Powered-By
+	}
+
+	# --- Actuator : défense en profondeur -------------------------------------
+	# Déjà inaccessible ; refusé ici au cas où une mauvaise configuration
+    # l'exposerait sur le port de l'API.
+	@actuator path /actuator /actuator/*
+	respond @actuator 404
+
+	# --- Proxy vers l'API -----------------------------------------------------
+	# Caddy remplace X-Forwarded-For fourni par le client : seule l'IP réelle vue
+	# par Caddy est transmise.
+	reverse_proxy app:8080 {
+		transport http {
+			dial_timeout            3s
+			response_header_timeout 30s
+		}
+	}
+
+	# --- Journal d'accès : jamais d'identifiants ------------------------
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+				request>headers>Proxy-Authorization delete
+			}
+		}
+	}
+}
