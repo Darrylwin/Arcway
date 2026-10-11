@@ -1,70 +1,77 @@
-# Mises à jour automatiques des dépendances.
-
+# =============================================================================
+# Arcway : mises à jour automatiques des dépendances
+# -----------------------------------------------------------------------------
+# Trois écosystèmes : Maven, GitHub Actions, images Docker. Une PR par groupe
+# et par semaine : le bruit reste faible, les correctifs de sécurité arrivent
+# quand même immédiatement.
+#
+# Règles
+#   - Java reste en 17 : les montées de version majeure de l'image Temurin
+#     sont ignorées.
+#   - Les messages de commit suivent la convention du projet (en anglais).
+#   - Toute PR Dependabot passe la CI complète avant fusion, sans exception.
+# =============================================================================
 version: 2
 
 updates:
+
+  # ---------------------------------------------------------------------------
+  # Maven : dépendances et plugins
+  # ---------------------------------------------------------------------------
   - package-ecosystem: maven
     directory: "/"
     schedule:
       interval: weekly
       day: monday
-      timezone: Africa/Lome
+      time: "06:00"
+      timezone: UTC
     open-pull-requests-limit: 5
+    labels: [ dependencies, java ]
     commit-message:
-      prefix: chore
-      include: scope        # produit "chore(deps) : ..." (Conventional Commits)
+      prefix: "chore(deps)"
     groups:
-      # Les mises à jour mineures et correctives sont regroupées en une seule PR.
-      maven-minor-patch:
-        update-types: [ minor, patch ]
-    ignore:
-      # Une nouvelle version majeure de Spring Boot est une migration à
-      # planifier, pas une PR automatique.
-      - dependency-name: org.springframework.boot:*
-        update-types: [ version-update:semver-major ]
+      spring-boot:
+        patterns: [ "org.springframework.boot:*" ]
+      testing:
+        patterns:
+          - "org.testcontainers:*"
+          - "com.tngtech.archunit:*"
+      security-libs:
+        patterns: [ "org.bouncycastle:*" ]
 
-  # Images du Dockerfile (eclipse-temurin).
-  - package-ecosystem: docker
-    directory: "/"
-    schedule:
-      interval: weekly
-      day: monday
-      timezone: Africa/Lome
-    commit-message:
-      prefix: chore
-      include: scope
-    ignore:
-      # Le projet est volontairement sur Java 17 : on reçoit les correctifs
-      # de 17, pas la proposition de passer à 21 ou 25.
-      - dependency-name: eclipse-temurin
-        update-types: [ version-update:semver-major ]
-
-  # Images de compose.yaml (postgres, mailpit).
-  - package-ecosystem: docker-compose
-    directory: "/"
-    schedule:
-      interval: weekly
-      day: monday
-      timezone: Africa/Lome
-    commit-message:
-      prefix: chore
-      include: scope
-    ignore:
-      # Changer de version majeure de PostgreSQL est une opération de données
-      # (migration du volume), jamais une mise à jour automatique.
-      - dependency-name: postgres
-        update-types: [ version-update:semver-major ]
-
-  # Actions GitHub utilisées par les workflows (.github/workflows/).
+  # ---------------------------------------------------------------------------
+  # GitHub Actions : workflows
+  # ---------------------------------------------------------------------------
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
       day: monday
-      timezone: Africa/Lome
+      time: "06:00"
+      timezone: UTC
+    open-pull-requests-limit: 3
+    labels: [ dependencies, ci ]
     commit-message:
-      prefix: ci
-      include: scope
+      prefix: "chore(ci)"
     groups:
-      github-actions:
+      actions:
         patterns: [ "*" ]
+
+  # ---------------------------------------------------------------------------
+  # Docker : images de base du Dockerfile
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    open-pull-requests-limit: 3
+    labels: [ dependencies, docker ]
+    commit-message:
+      prefix: "chore(docker)"
+    ignore:
+      # Java 17 imposé : pas de montée de version majeure du JDK/JRE
+      - dependency-name: "eclipse-temurin"
+        update-types: [ "version-update:semver-major" ]
