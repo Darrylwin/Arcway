@@ -39,7 +39,7 @@ concernée.
 
 ## Signaler un problème
 
-Pour signaler un comportement inacceptable, écrire à `À_REMPLIR@exemple.com`.
+Pour signaler un comportement inacceptable, écrire à `logossoudarryl20@gmail.com`.
 Les signalements sont examinés avec sérieux, traités de façon confidentielle, et
 l'identité de la personne qui signale n'est pas divulguée.
 

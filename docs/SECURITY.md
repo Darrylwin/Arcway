@@ -32,14 +32,33 @@ Nous vous tiendrons informé de l'avancement et vous créditerons dans l'avis de
 
 Sont particulièrement importantes pour ce projet :
 
-- toute fuite de données **entre organisations** (isolation multi-tenant) ;
-- le contournement de l'authentification ou des permissions ;
-- l'élévation de privilèges (par exemple devenir OWNER) ;
-- l'injection (SQL, en-têtes, fichiers) et l'upload de fichiers malveillants ;
-- l'exposition de secrets ou de données personnelles.
+- toute fuite de données **entre organisations** (isolation multi-tenant, contournement de la RLS) ;
+- le contournement de l'authentification (jetons d'accès, refresh tokens, invitations) ou des permissions ;
+- l'élévation de privilèges (par exemple devenir `ADMIN` d'une organisation, ou agir sur une équipe hors de son
+  périmètre) ;
+- l'injection (SQL, en-têtes) ;
+- l'exposition de secrets ou de données personnelles, en particulier celles des joueurs mineurs (date de naissance).
 
 Hors périmètre : les attaques par déni de service volumétrique, l'ingénierie sociale, et les rapports issus d'un scanner
 automatique sans impact démontré.
+
+## Mécanismes de défense prévus par la conception
+
+Pour orienter vos recherches, voici ce sur quoi la sécurité du projet repose :
+
+- **Isolation entre organisations** : sécurité au niveau ligne PostgreSQL (RLS), clés étrangères composites
+  `(colonne, organization_id)`, et accès HTTP par l'organisation de l'URL, relue à chaque requête. Un non-membre reçoit
+  404.
+- **Rôle de base applicatif** sans droit de propriété, sans `BYPASSRLS`, sans DDL ; démarrage refusé si ces conditions
+  ne sont pas réunies.
+- **Authentification** : mots de passe hachés en Argon2id ; jetons d'accès JWT de 10 minutes ; refresh tokens à
+  rotation,
+  stockés sous forme de hash, avec révocation de toute la famille en cas de réutilisation.
+- **Secrets** : jamais dans Git ni dans l'image ; montés comme fichiers en production ; détection par gitleaks en CI.
+- **Chaîne de livraison** : analyse de l'image (Trivy), revue des dépendances, mises à jour automatiques (Dependabot),
+  déploiement par condensat d'image après approbation manuelle.
+
+Cette liste décrit l'architecture visée ; l'avancement de chaque mécanisme suit le développement du projet.
 
 ## Versions supportées
 
