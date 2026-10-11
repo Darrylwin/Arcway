@@ -1,0 +1,116 @@
+# =============================================================================
+# Arcway : profil « test »
+# -----------------------------------------------------------------------------
+# Activé par @ActiveProfiles("test") dans AbstractIntegrationTest. Les tests
+# unitaires (*Test, Surefire) ne chargent aucun contexte Spring : ce fichier ne
+# les concerne pas.
+#
+# S'AJOUTE à application.yaml. Principes
+#   - Aucun .env n'est lu : un test ne dépend jamais du poste du développeur.
+#   - Aucune valeur d'ici ne doit servir ailleurs. Tout est factice et propre
+#     aux tests ; le secret JWT ne protège rien.
+#   - L'URL, les utilisateurs et les mots de passe de la base sont INJECTÉS par
+#     PostgresContainerConfig : les valeurs ci-dessous
+#     ne servent que de garde-fou si l'injection est absente. L'application se
+#     connecte avec arcway_app, Flyway avec arcway_migrator.
+#     Jamais avec le compte d'administration du conteneur.
+# =============================================================================
+
+spring:
+  main:
+    banner-mode: "off"            # entre guillemets : off non quoté vaut false en YAML
+
+  # ---------------------------------------------------------------------------
+  # Base de données : surchargée à l'exécution par PostgresContainerConfig
+  # ---------------------------------------------------------------------------
+  datasource:
+    url: jdbc:postgresql://localhost:5432/arcway_test
+    username: arcway_app
+    password: overridden-by-testcontainers
+    hikari:
+      # Les tests de concurrence tiennent une connexion par thread.
+      # PooledConnectionReuseIT impose sa propre taille de pool.
+      maximum-pool-size: 20
+      minimum-idle: 1
+      connection-timeout: 5000    # ms : les runners de CI sont plus lents
+
+  # ---------------------------------------------------------------------------
+  # Hibernate VALIDE le schéma de Flyway dans TOUS les tests d'intégration :
+  # c'est le premier garde-fou contre les divergences entre modèle, migrations
+  # et entités.
+  # ---------------------------------------------------------------------------
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: validate
+
+  # ---------------------------------------------------------------------------
+  # Flyway : migre une base vide à chaque contexte, avec arcway_migrator.
+  # Aucune donnée de démonstration :
+  # chaque test crée ses données.
+  # ---------------------------------------------------------------------------
+  flyway:
+    enabled: true
+    url: jdbc:postgresql://localhost:5432/arcway_test
+    user: arcway_migrator
+    password: overridden-by-testcontainers
+    locations: classpath:db/migration
+    clean-disabled: true
+
+  # Emails : jamais envoyés. RecordingMailSender remplace l'envoi.
+  mail:
+    host: localhost
+    port: 3025
+    properties:
+      mail.smtp.auth: false
+      mail.smtp.starttls.enable: false
+      mail.smtp.starttls.required: false
+
+  lifecycle:
+    timeout-per-shutdown-phase: 5s   # fermeture rapide des contextes en cache
+
+server:
+  port: 0                           # port aléatoire : jamais de conflit en parallèle ni en CI
+
+# -----------------------------------------------------------------------------
+# Journaux : silence, sauf ce que les tests lisent.
+# Le canal SECURITY est lu par RlsViolationMappingIT.
+# -----------------------------------------------------------------------------
+logging:
+  level:
+    root: WARN
+    com.darcode.arcway: INFO
+    SECURITY: INFO
+    org.testcontainers: WARN
+    com.github.dockerjava: WARN
+    org.hibernate: WARN
+    com.zaxxer.hikari: WARN
+
+# -----------------------------------------------------------------------------
+# Propriétés applicatives
+# -----------------------------------------------------------------------------
+arcway:
+  jwt:
+    # Factice : 32 octets minimum, comme en production.
+    secret: test-only-jwt-secret-not-for-any-real-use-0123456789
+    access-token-ttl: 10m
+    refresh-token-ttl: 30d
+  cors:
+    allowed-origins: http://localhost
+  mail:
+    from: no-reply@arcway.test
+    app-base-url: http://localhost
+  trusted-proxies: ""
+  # Limiteur relâché : il reste actif, mais ne bloque aucun test. RateLimitApiIT
+  # le resserre avec @TestPropertySource.
+  ratelimit:
+    enabled: true
+    policies:
+      login:
+        capacity: 100000
+      register:
+        capacity: 100000
+      password-forgot:
+        capacity: 100000
+      invitation-accept:
+        capacity: 100000
