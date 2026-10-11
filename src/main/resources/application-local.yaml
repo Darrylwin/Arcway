@@ -1,16 +1,70 @@
-# Profil de développement : la base du compose.yaml, Flyway au démarrage.
-# Les identifiants viennent du fichier .env à la racine du projet.
+# =============================================================================
+# Arcway : profil « local »
+# -----------------------------------------------------------------------------
+# NE JAMAIS activer en production.
+#
+# Particularités
+#   - Charge le fichier .env à la racine.
+#   - Flyway migre AU DÉMARRAGE avec arcway_migrator, puis l'application se
+#     connecte avec arcway_app : la RLS s'applique dès le développement.
+#   - Les données de démonstration (db/dev) ne sont chargées qu'ici.
+#   - Les emails partent vers Mailpit (http://localhost:8025), jamais vers
+#     l'extérieur.
+# =============================================================================
 
 spring:
+  config:
+    import: optional:file:.env[.properties]
+
+  datasource:
+    # Valeur par défaut pratique ; surchargeable via .env
+    url: ${ARCWAY_DB_URL:jdbc:postgresql://localhost:5432/arcway}
+    hikari:
+      leak-detection-threshold: 10000   # signale une connexion gardée > 10 s
+
   flyway:
+    enabled: true
+    url: ${ARCWAY_DB_URL:jdbc:postgresql://localhost:5432/arcway}
     user: ${ARCWAY_DB_MIGRATOR_USER:arcway_migrator}
-    password: ${ARCWAY_DB_MIGRATOR_PASSWORD:arcway_migrator_dev_password}
+    password: ${ARCWAY_DB_MIGRATOR_PASSWORD}
+    # db/dev contient afterMigrate__seed_demo.sql
+    locations: classpath:db/migration,classpath:db/dev
+
+  # Mailpit : pas d'authentification ni de chiffrement en local
   mail:
     host: ${ARCWAY_MAIL_HOST:localhost}
     port: ${ARCWAY_MAIL_PORT:1025}
+    properties:
+      mail.smtp.auth: false
+      mail.smtp.starttls.enable: false
+      mail.smtp.starttls.required: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
 
 logging:
   level:
-    root: INFO
     com.darcode.arcway: DEBUG
-    org.springframework.security: INFO
+    # Requêtes SQL : décommenter pour diagnostiquer, jamais en production
+    # org.hibernate.SQL: DEBUG
+
+arcway:
+  mail:
+    from: ${ARCWAY_MAIL_FROM:no-reply@arcway.local}
+    app-base-url: ${ARCWAY_APP_BASE_URL:http://localhost:3000}
+  cors:
+    allowed-origins: ${ARCWAY_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+  # Limiteur très relâché en local pour ne pas gêner les essais manuels
+  ratelimit:
+    policies:
+      login:
+        capacity: 1000
+      register:
+        capacity: 1000
+      password-forgot:
+        capacity: 1000
+      invitation-accept:
+        capacity: 1000

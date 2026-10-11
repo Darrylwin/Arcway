@@ -1,0 +1,34 @@
+# =============================================================================
+# Arcway : profil « migrate »
+# -----------------------------------------------------------------------------
+# Activé EN PLUS de « prod » : SPRING_PROFILES_ACTIVE=prod,migrate
+#   - « prod »    : import des secrets, journaux JSON.
+#   - « migrate » : Flyway actif, aucun serveur web.
+#
+# Fonctionnement
+#   Flyway s'exécute avec arcway_migrator. La source de données applicative reste
+#   arcway_app : après la migration, le démarrage valide donc le schéma contre les
+#   entités l'isolation. Le processus s'arrête ensuite : code 0 = succès.
+#
+# Contraintes pour le code :
+#   - Les tâches planifiées et l'exécuteur asynchrone doivent être
+#     désactivés sous ce profil.
+# =============================================================================
+
+spring:
+  main:
+    web-application-type: none   # pas de serveur HTTP, pas d'Actuator
+    banner-mode: "off"           # entre guillemets : off non quoté vaut false en YAML
+
+  flyway:
+    enabled: true
+    url: ${ARCWAY_DB_URL}
+    user: ${ARCWAY_DB_MIGRATOR_USER}
+    password: ${ARCWAY_DB_MIGRATOR_PASSWORD}
+    # Production : jamais de données de démonstration
+    locations: classpath:db/migration
+    # Base momentanément injoignable au démarrage : on réessaie avant d'échouer
+    connect-retries: 5
+    connect-retries-interval: 5s
+    fail-on-missing-locations: true
+    validate-migration-naming: true

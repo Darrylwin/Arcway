@@ -1,39 +1,188 @@
-# Configuration commune à tous les environnements. Aucun secret ici.
-# Les valeurs propres à un environnement vivent dans application-<profil>.yaml.
+# =============================================================================
+# Arcway : configuration COMMUNE à tous les environnements
+# -----------------------------------------------------------------------------
+# Principes
+#   - Défauts SÛRS : une propriété risquée est désactivée ici et activée
+#     explicitement dans le profil qui en a besoin.
+#   - AUCUN secret : tout secret arrive par variable d'environnement ou fichier
+#     monté. Une propriété obligatoire absente empêche le démarrage.
+#   - Surcharges par profil : application-local.yaml, application-prod.yaml,
+#     application-migrate.yaml.
+# =============================================================================
 
 spring:
   application:
-    name: arcway-backend
+    name: arcway
     version: "@project.version@"
 
-  profiles:
-    active: local
-
+  # ---------------------------------------------------------------------------
+  # Source de données : TOUJOURS le rôle applicatif.
+  # La RLS s'applique donc en développement comme en production.
+  # ---------------------------------------------------------------------------
   datasource:
-    driver-class-name: org.postgresql.Driver
-    url: ${ARCWAY_DB_URL:jdbc:postgresql://localhost:5432/arcway_db}
-    username: ${ARCWAY_DB_APP_USER:arcway_app}
-    password: ${ARCWAY_DB_APP_PASSWORD:arcway_app_dev_password}
+    url: ${ARCWAY_DB_URL}
+    username: ${ARCWAY_DB_APP_USER}
+    password: ${ARCWAY_DB_APP_PASSWORD}
+    hikari:
+      pool-name: arcway-pool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 3000      # ms : échec rapide plutôt que file d'attente
+      validation-timeout: 1000      # ms
+      idle-timeout: 300000          # 5 min
+      max-lifetime: 1500000         # 25 min (< délais de coupure réseau usuels)
+      keepalive-time: 120000        # 2 min
+
+  # ---------------------------------------------------------------------------
+  # JPA : le schéma appartient à Flyway, Hibernate se contente de le VALIDER.
+  # ---------------------------------------------------------------------------
   jpa:
-    open-in-view: false
+    open-in-view: false             # pas de session ouverte pendant le rendu HTTP
+    hibernate:
+      ddl-auto: validate
     properties:
       hibernate:
         jdbc:
-          time_zone: UTC
-  flyway:
-    enabled: true
-    baseline-on-migrate: true
-    schemas: public
+          time_zone: UTC            # les instants sont stockés en timestamptz UTC
+        query:
+          fail_on_pagination_over_collection_fetch: true
 
+  # ---------------------------------------------------------------------------
+  # Flyway : DÉSACTIVÉ par défaut. Activé par le profil « local » au démarrage
+  # et par le profil « migrate » (étape de déploiement séparée).
+  # Les migrations s'exécutent avec arcway_migrator, jamais avec arcway_app.
+  # ---------------------------------------------------------------------------
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true            # interdit définitivement « flyway clean »
+    baseline-on-migrate: false
+    out-of-order: false
+
+  # ---------------------------------------------------------------------------
+  # Emails : STARTTLS exigé par défaut (le profil local relâche pour Mailpit).
+  # ---------------------------------------------------------------------------
+  mail:
+    host: ${ARCWAY_MAIL_HOST}
+    port: ${ARCWAY_MAIL_PORT:587}
+    username: ${ARCWAY_MAIL_USER:}
+    password: ${ARCWAY_MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+
+  # ---------------------------------------------------------------------------
+  # API pure : ni ressources statiques, ni envoi de fichiers.
+  # ---------------------------------------------------------------------------
+  web:
+    resources:
+      add-mappings: false
+    error:
+      # Aucune fuite d'information technique vers le client
+      include-message: never
+      include-binding-errors: never
+      include-stacktrace: never
+      include-exception: false
+  servlet:
+    multipart:
+      enabled: false
+    encoding:
+      charset: UTF-8
+      force: true
+
+  # Contrat d'API : un champ inconnu dans un *Request est rejeté.
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
+  lifecycle:
+    timeout-per-shutdown-phase: 20s # temps accordé aux requêtes en cours à l'arrêt
+
+# -----------------------------------------------------------------------------
+# Serveur HTTP
+# -----------------------------------------------------------------------------
+server:
+  shutdown: graceful
+  max-http-request-header-size: 16KB
+
+# -----------------------------------------------------------------------------
+# Actuator : seulement la santé et la version déployée.
+# Les sondes liveness/readiness sont séparées : la readiness dépend de la base.
+# ARCWAY_MANAGEMENT_PORT vide : même port que l'API ; dédié en production.
+# -----------------------------------------------------------------------------
+management:
+  server:
+    port: ${ARCWAY_MANAGEMENT_PORT:}
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      show-components: never
+      group:
+        readiness:
+          include:
+            - readinessState
+            - db
+  info:
+    build:
+      enabled: true
+    env:
+      enabled: false
+
+# -----------------------------------------------------------------------------
+# Journalisation : identifiants de corrélation. requestId, organizationId
+# et userId sont posés dans le MDC par les filtres.
+# Interdit dans les logs : corps de requête, Authorization, mots de passe,
+# jetons, email, date de naissance.
+# -----------------------------------------------------------------------------
+logging:
+  level:
+    root: INFO
+    com.darcode.arcway: INFO
+  pattern:
+    correlation: "[%X{requestId:-} org=%X{organizationId:-} user=%X{userId:-}] "
+
+# -----------------------------------------------------------------------------
+# Propriétés applicatives (lues par ArcwayProperties, @Validated)
+# -----------------------------------------------------------------------------
 arcway:
   jwt:
-    secret: ${ARCWAY_JWT_SECRET:super_secret_jwt_key_that_is_at_least_32_bytes_long_for_security_12345}
-    access-token-expiration-minutes: 10
-    refresh-token-expiration-days: 30
+    secret: ${ARCWAY_JWT_SECRET}    # HS256, 32 octets minimum
+    access-token-ttl: 10m
+    refresh-token-ttl: 30d
   cors:
-    allowed-origins: ${ARCWAY_CORS_ALLOWED_ORIGINS:http://localhost:3000}
+    allowed-origins: ${ARCWAY_CORS_ALLOWED_ORIGINS:}
   mail:
-    from: ${ARCWAY_MAIL_FROM:noreply@arcway.app}
-    base-url: ${ARCWAY_APP_BASE_URL:http://localhost:3000}
+    from: ${ARCWAY_MAIL_FROM}
+    app-base-url: ${ARCWAY_APP_BASE_URL}
+  # Proxys de confiance : X-Forwarded-For n'est accepté que depuis ces adresses.
+  trusted-proxies: ${ARCWAY_TRUSTED_PROXIES:}
   ratelimit:
     enabled: true
+    policies:
+      login:
+        capacity: 10
+        window: 15m
+        key: IP
+      register:
+        capacity: 5
+        window: 1h
+        key: IP
+      password-forgot:
+        capacity: 5
+        window: 1h
+        key: IP
+      invitation-accept:
+        capacity: 10
+        window: 1h
+        key: IP

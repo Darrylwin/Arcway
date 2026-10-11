@@ -1,0 +1,63 @@
+# =============================================================================
+# Arcway : profil « prod »
+# -----------------------------------------------------------------------------
+# S'ajoute à application.yaml. Ici : tout ce qui change entre le développement
+# et la production.
+#
+# Principes
+#   - AUCUN défaut implicite sur les propriétés d'exploitation : une valeur
+#     absente empêche le démarrage.
+#   - Les secrets arrivent par FICHIERS montés dans /run/secrets ;
+#     chaque fichier devient une propriété portant le nom du fichier, ce qui
+#     alimente les placeholders ${ARCWAY_JWT_SECRET}, ${ARCWAY_DB_APP_PASSWORD}...
+#     d'application.yaml. Créer les fichiers SANS retour à la ligne final.
+#   - Flyway est DÉSACTIVÉ dans l'application : les migrations tournent dans
+#     l'étape séparée « migrate ».
+# =============================================================================
+
+spring:
+  config:
+    # Volontairement NON optionnel : sans secrets montés, l'application refuse
+    # de démarrer.
+    import: configtree:/run/secrets/
+
+  datasource:
+    hikari:
+      maximum-pool-size: 10
+
+  flyway:
+    enabled: false              # explicite : jamais de migration au démarrage de l'API
+
+  jpa:
+    show-sql: false
+
+server:
+  # Le proxy est géré par ClientIpResolver, pas par la détection automatique de Spring.
+  forward-headers-strategy: none
+
+management:
+  server:
+    # Port dédié, jamais celui de l'API. Obligatoire en production.
+    port: ${ARCWAY_MANAGEMENT_PORT}
+
+# Journaux JSON : une ligne = un événement exploitable par jq ou un agrégateur.
+# Les clés du MDC y figurent automatiquement.
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        name: arcway
+        version: "@project.version@"
+        environment: production
+  level:
+    root: INFO
+    com.darcode.arcway: INFO
+
+arcway:
+  cors:
+    # Pas de valeur par défaut en production
+    allowed-origins: ${ARCWAY_CORS_ALLOWED_ORIGINS}
+  # Seul le reverse proxy est digne de confiance pour X-Forwarded-For
+  trusted-proxies: ${ARCWAY_TRUSTED_PROXIES}
