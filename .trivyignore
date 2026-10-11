@@ -1,0 +1,13 @@
+# Vulnérabilités acceptées pour Trivy (scan des dépendances et de l'image).
+#
+# Règles d'ajout :
+#   1. Une ligne par identifiant, avec une date d'expiration.
+#   2. Un commentaire juste au-dessus : pourquoi c'est acceptable
+#      (non exploitable ici, pas de correctif disponible...) et qui a décidé.
+#   3. La date d'expiration oblige à réexaminer la décision. Passé ce jour,
+#      Trivy signale de nouveau la vulnérabilité.
+#
+# Exemple (à ne pas décommenter) :
+#
+#   # Fonction vulnérable jamais appelée par Arcway. Décidé par X le 2026-10-08.
+#   CVE-2099-12345 exp:2027-01-31

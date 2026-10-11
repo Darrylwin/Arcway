@@ -1,0 +1,18 @@
+* text=auto eol=lf
+
+# Scripts exécutés sous Linux (conteneur, CI) : LF obligatoire.
+*.sh text eol=lf
+mvnw text eol=lf
+
+# Scripts Windows : CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Fichiers binaires : jamais convertis.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.jar binary

@@ -1,0 +1,33 @@
+# Secrets et configuration locale
+.env
+.env.*
+**/*.pem
+**/*.key
+**/secrets/
+
+# Historique et métadonnées Git
+.git
+.gitignore
+.gitattributes
+.github
+
+# Artefacts de buld
+**/target/
+
+# Environnement de développement
+/.idea/
+.vscode/
+*.iml
+.sdkmanrc
+.editorconfig
+
+# Infrastructure ne servant pas à la construction de l'image
+compose*.yaml
+deploy/
+ops/
+scripts/
+docs/
+
+# Documentation de dépôt
+*.md
+LICENSE
