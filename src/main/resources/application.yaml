@@ -1,3 +1,39 @@
+# Configuration commune à tous les environnements. Aucun secret ici.
+# Les valeurs propres à un environnement vivent dans application-<profil>.yaml.
+
 spring:
   application:
-    name: arcway
+    name: arcway-backend
+    version: "@project.version@"
+
+  profiles:
+    active: local
+
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${ARCWAY_DB_URL:jdbc:postgresql://localhost:5432/arcway_db}
+    username: ${ARCWAY_DB_APP_USER:arcway_app}
+    password: ${ARCWAY_DB_APP_PASSWORD:arcway_app_dev_password}
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    schemas: public
+
+arcway:
+  jwt:
+    secret: ${ARCWAY_JWT_SECRET:super_secret_jwt_key_that_is_at_least_32_bytes_long_for_security_12345}
+    access-token-expiration-minutes: 10
+    refresh-token-expiration-days: 30
+  cors:
+    allowed-origins: ${ARCWAY_CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  mail:
+    from: ${ARCWAY_MAIL_FROM:noreply@arcway.app}
+    base-url: ${ARCWAY_APP_BASE_URL:http://localhost:3000}
+  ratelimit:
+    enabled: true

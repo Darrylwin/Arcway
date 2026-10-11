@@ -1,0 +1,29 @@
+name: arcway
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: arcway-postgres
+    environment:
+      POSTGRES_DB: arcway_db
+      POSTGRES_PASSWORD: postgres_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./ops/db/init/01-roles.sql:/docker-entrypoint-initdb.d/01-roles.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d arcway_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: arcway-mailpit
+    ports:
+      - "8025:8025" # Interface Web
+      - "1025:1025" # Serveur SMTP
+
+volumes:
+  postgres_data:

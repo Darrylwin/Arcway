@@ -1,0 +1,16 @@
+# Profil de développement : la base du compose.yaml, Flyway au démarrage.
+# Les identifiants viennent du fichier .env à la racine du projet.
+
+spring:
+  flyway:
+    user: ${ARCWAY_DB_MIGRATOR_USER:arcway_migrator}
+    password: ${ARCWAY_DB_MIGRATOR_PASSWORD:arcway_migrator_dev_password}
+  mail:
+    host: ${ARCWAY_MAIL_HOST:localhost}
+    port: ${ARCWAY_MAIL_PORT:1025}
+
+logging:
+  level:
+    root: INFO
+    com.darcode.arcway: DEBUG
+    org.springframework.security: INFO
