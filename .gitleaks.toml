@@ -8,7 +8,6 @@ useDefault = true
 
 # Valeurs factices volontaires, uniquement dans les fichiers modèles.
 # condition = "AND" : le chemin ET le mot factice doivent correspondre. Sans cela,
-# un vrai secret contenant « change-me » serait ignoré partout dans le dépôt.
 [[allowlists]]
 description = "Valeurs factices des fichiers modèles"
 condition = "AND"
@@ -16,7 +15,19 @@ paths = [
     '''(^|/)\.env\.example$''',
     '''(^|/)deploy/env/[^/]+\.env\.example$''',
 ]
-stopwords = ["change-me"]
+stopwords = ["change_me"]
+
+# Hash Argon2id PUBLIC des comptes de démonstration.
+[[allowlists]]
+description = "Hash Argon2id public des comptes de démonstration locaux"
+condition = "AND"
+paths = [
+    '''(^|/)src/main/resources/db/dev/afterMigrate__seed_demo\.sql$''',
+]
+regexTarget = "line"
+regexes = [
+    '''\$argon2id\$v=19\$m=16384,t=2,p=1\$CPr6wkcYLaixg12UA7pwyQ\$''',
+]
 
 [[allowlists]]
 description = "Fichiers dont le contenu n'est pas du code projet"

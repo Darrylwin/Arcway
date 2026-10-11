@@ -1,26 +1,66 @@
-HELP.md
-
 ### Maven ###
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+dependency-reduced-pom.xml
+pom.xml.versionsBackup
+pom.xml.releaseBackup
+release.properties
+.flattened-pom.xml
+HELP.md
 
-### Secrets et clés ###
-# Variables d'environnement
+### Secrets et configuration locale ###
+# Variables d'environnement : seuls les modèles *.example sont versionnés.
 .env
 .env.*
-!.env.example
 *.env
+!.env.example
+!*.env.example
+# Surcharges locales de configuration
+*.local.yaml
+*.local.yml
+*.local.properties
 
-### Clés et certificats
+### Clés, certificats et magasins de clés ###
 *.pem
 *.key
-$.p12
+*.p12
+*.pfx
 *.jks
-secrets/
+*.keystore
+*.crt
+*.csr
 
-### STS ###
+### Déploiement : fichiers propres au serveur (jamais dans Git) ###
+# Un fichier par secret (voir docs/OPERATIONS.md, section 3)
+secrets/
+deploy/secrets/
+# Certificat de l'autorité de la base (deploy/certs/db-ca.pem)
+deploy/certs/
+# Variables de production : seul prod.env.example est versionné
+deploy/env/prod.env
+
+### Sauvegardes et dumps de base de données ###
+# Produits par scripts/backup-db.sh (chiffrés) ou par pg_dump en local
+*.dump
+*.dump.age
+*.dump.age.sha256
+*.dump.partial
+*.age.partial
+*.sql.gz
+*.sql.zip
+backups/
+
+### Journaux et diagnostics ###
+*.log
+logs/
+# Dump mémoire Java
+*.hprof
+hs_err_pid*
+replay_pid*
+
+### STS / Eclipse ###
 .apt_generated
 .classpath
 .factorypath
@@ -34,16 +74,7 @@ secrets/
 *.iws
 *.iml
 *.ipr
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
+out/
 
 ### VS Code ###
 .vscode/
@@ -52,13 +83,4 @@ build/
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-### Logs et dumps ###
-*.log
-# Dump mémoire Java
-*.hprof
-hs_err_pid*
-
-# Sauvegardes de base locales
-*.dumb
-*.sql.gz
+ehthumbs.db

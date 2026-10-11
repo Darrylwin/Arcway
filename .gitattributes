@@ -1,6 +1,8 @@
+# Normalisation des fins de ligne : LF partout dans le dépôt.
 * text=auto eol=lf
 
-# Scripts exécutés sous Linux (conteneur, CI) : LF obligatoire.
+# Scripts exécutés sous Linux (conteneur, CI, serveur) : LF obligatoire.
+# Un CRLF provoque « \r: command not found » à l'exécution.
 *.sh text eol=lf
 mvnw text eol=lf
 
@@ -15,4 +17,8 @@ mvnw text eol=lf
 *.gif binary
 *.webp binary
 *.ico binary
+*.pdf binary
+*.woff2 binary
 *.jar binary
+*.dump binary
+*.age binary

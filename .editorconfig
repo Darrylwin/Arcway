@@ -14,9 +14,12 @@ max_line_length = 120
 [*.{yml,yaml,json}]
 indent_size = 2
 
-# Markdown
+# Markdown : deux espaces en fin de ligne = saut de ligne
 [*.md]
 trim_trailing_whitespace = false
+
+[Caddyfile]
+indent_style = tab
 
 # Scripts batch Windows
 [*.{cmd,bat}]

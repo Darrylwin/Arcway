@@ -1,8 +1,11 @@
 # Secrets et configuration locale
 .env
 .env.*
+**/*.env
 **/*.pem
 **/*.key
+**/*.p12
+**/*.jks
 **/secrets/
 
 # Historique et métadonnées Git
@@ -11,7 +14,7 @@
 .gitattributes
 .github
 
-# Artefacts de buld
+# Artefacts de build
 **/target/
 
 # Environnement de développement
@@ -21,12 +24,20 @@
 .sdkmanrc
 .editorconfig
 
+src/main/resources/db/dev/
+src/main/resources/application-local.yaml
+
 # Infrastructure ne servant pas à la construction de l'image
-compose*.yaml
+compose*.y*ml
 deploy/
 ops/
 scripts/
 docs/
+
+# Sauvegardes et journaux
+**/*.dump
+**/*.dump.age
+**/*.log
 
 # Documentation de dépôt
 *.md
