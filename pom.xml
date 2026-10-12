@@ -49,7 +49,7 @@
         <!-- Java 17 est le plancher ET le plafond : aucune API postérieure n'est utilisable. -->
         <java.version>17</java.version>
 
-        <bouncycastle.version>1.85.2</bouncycastle.version>
+        <bouncycastle.version>1.86</bouncycastle.version>
         <archunit.version>1.4.2</archunit.version>
 
         <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
