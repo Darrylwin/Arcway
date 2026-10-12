@@ -100,10 +100,9 @@ USER 10001:10001
 # API. Le port d'Actuator est distinct en production et n'est volontairement pas publié.
 EXPOSE 8080
 
-# Sonde de READINESS. Utilise le port de management s'il est
-# défini, sinon le port de l'API. wget vient de busybox.
+# Sonde de READINESS
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-    CMD wget -q --spider "http://127.0.0.1:${ARCWAY_MANAGEMENT_PORT:-8080}/actuator/health/readiness" || exit 1
+    CMD ["sh", "-c", "wget -q --spider \"http://127.0.0.1:${ARCWAY_MANAGEMENT_PORT:-8080}/actuator/health/readiness\" || exit 1"]
 
 # Forme exec : java est le processus 1 et reçoit directement SIGTERM, ce qui
 # déclenche l'arrêt gracieux.
