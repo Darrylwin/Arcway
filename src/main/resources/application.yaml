@@ -12,7 +12,7 @@
 
 spring:
   application:
-    name: arcway
+    name: Arcway
     version: "@project.version@"
 
   # ---------------------------------------------------------------------------

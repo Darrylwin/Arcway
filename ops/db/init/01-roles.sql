@@ -4,7 +4,7 @@
 -- Rôle du fichier
 --   Seul endroit où les RÔLES sont créés. Les rôles sont des objets de cluster :
 --   ils ne passent donc pas par Flyway. Ce fichier ne crée ni table ni droit sur
---   table (les droits sont dans R__030_grants.sql).
+--   table.
 --
 -- Rôles
 --   arcway_migrator : propriétaire des objets. Utilisé UNIQUEMENT par l'étape
